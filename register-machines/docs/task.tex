@@ -28,6 +28,11 @@ They are simple machines that only make use of 3 unique instructions, yet are
 Turing Complete. In this task, we will deal with programming several tools that 
 automate common tasks.
 
+\section*{Before you get started!}
+It's worth mentioning that you should be working on a fork of the original repository.
+That way, when you're done you can submit a pull request on Github and the markers can
+give feedback directly on the pull request.
+
 \section*{Register Machines}
 Register Machines are an abstract class of machines. They are Turing Equivalent 
 and as a result, are useful proxies for proving statements about computability.\\
@@ -142,7 +147,7 @@ For this lab, we have made some simple unit tests in order to show how unit test
 are formatted, as well as test small elements of your code's functionality.
 You may run these tests by opening a terminal in this lab's root directory and typing:
 \begin{lstlisting}[language=Bash]
-    $ cargo test
+$ cargo test
 \end{lstlisting}
 
 The tests given for this lab are quite sparse and do not tests edge cases. We highly
@@ -193,6 +198,19 @@ things you can come up with. What happens if you encode the Universal Register M
 into its Godel Numbering, and pass that into the Universal Register Machine?
 
 \section*{Submission}
-Once you've finished working and you want the piece to be marked, you can 
+Once you've finished working and you want the piece to be marked, you can create 
+a pull request on Github, and a marker will come along and give you interactive
+feedback on the pull request. This means that marking can be a two-way conversation
+between you and the marker.
+
+Before you start a pull request, it is worth rebasing your forked repository with
+the original:
+\begin{lstlisting}[language=Bash]
+$ git remote add upstream https://github.com/JordanLloydHall/RustCourse
+$ git rebase -i upstream/main
+\end{lstlisting}
+
+This can also be used to ensure that you have the lastest spec for the course as well! 
+We are no strangers to mistakes and this allows us to fix them easily.
 
 \end{document}
