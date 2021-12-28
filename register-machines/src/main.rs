@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::EncodeUtf16};
 
 type Label = usize;
 type Register = u128;
@@ -9,6 +9,138 @@ enum Instruction {
     Add(Register, Label),
     Sub(Register, Label, Label),
     Halt
+}
+
+type Godel = u128;
+
+trait Encodable {
+    fn encode(&self) -> Godel;
+}
+
+impl<T: Encodable> Encodable for &T {
+    fn encode(&self) -> Godel {
+        (**self).encode()
+    }
+}
+
+impl Encodable for u128 {
+    fn encode(&self) -> Godel {
+        *self
+    }
+}
+
+impl Encodable for usize {
+    fn encode(&self) -> Godel {
+        (*self as u128).encode()
+    }
+}
+
+impl<T: Encodable, V: Encodable> Encodable for (T, V) {
+    fn encode(&self) -> Godel {
+        let (x, y) = &self;
+        (1 << x.encode()) * (2 * y.encode() + 1) - 1
+    }
+}
+
+impl<T: Encodable> Encodable for Option<T> {
+    fn encode(&self) -> Godel {
+        match self {
+            Some(x) => 1 + x.encode(),
+            None => 0
+        }
+    }
+}
+
+impl Encodable for Instruction {
+    fn encode(&self) -> Godel {
+        match *self {
+            Add(i, j) => Some((2 * i, j)).encode(),
+            Sub(i, j, k) => Some((2 * i + 1, (j, k))).encode(),
+            Halt => (None as Option<u128>).encode()
+        }
+    }
+}
+
+impl<T: Encodable> Encodable for &[T] {
+    fn encode(&self) -> Godel {
+        self.iter()
+            .rev()
+            .fold(
+                (None as Option<u128>).encode(),
+                |x, y| Some((y, x)).encode()
+            )
+    }
+}
+
+trait Decodable {
+    fn decode(godel: Godel) -> Self;
+}
+
+impl Decodable for u128 {
+    fn decode(godel: Godel) -> Self {
+        godel
+    }
+}
+
+impl Decodable for usize {
+    fn decode(godel: Godel) -> Self {
+        godel as usize
+    }
+}
+
+impl<T: Decodable, V: Decodable> Decodable for (T, V) {
+    fn decode(godel: Godel) -> Self {
+        let x_godel = count_trailing_zeros(godel + 1);
+        let y_godel = (godel + 1) >> (x_godel + 1);
+
+        (decode(x_godel), decode(y_godel))
+    }
+}
+
+impl<T: Decodable> Decodable for Option<T> {
+    fn decode(godel: Godel) -> Self {
+        if godel == 0 {
+            None
+        } else {
+            Some(decode(godel - 1))
+        }
+    }
+}
+
+impl Decodable for Instruction {
+    fn decode(godel: Godel) -> Self {
+        match decode::<Option<(u128, Godel)>>(godel) {
+            None => Halt,
+            Some((f, arg)) => {
+                if f % 2 == 0 {
+                    // EVEN: add
+                    Add(f / 2, decode(arg))
+                } else {
+                    // ODD: sub
+                    let (j, k) = decode(arg);
+                    Sub((f - 1) / 2, j, k)
+                }
+            }
+        }
+    }
+}
+
+impl<T: Decodable> Decodable for Vec<T> {
+    fn decode(mut godel: Godel) -> Self {
+        let mut list = vec!();
+
+        while let Some((head, tail)) = decode(godel) {
+            list.push(head);
+
+            godel = tail;
+        }
+    
+        list
+    }
+}
+
+fn decode<T: Decodable>(godel: Godel) -> T {
+    T::decode(godel)
 }
 
 use Instruction::*;
@@ -48,27 +180,22 @@ fn eval_program(program: &[Instruction], init: &State) -> State {
 // <<x,y>> = (2^x)*(2y+1)
 // NULLABLE
 fn encode_pair1(x: u128, y: u128) -> u128 {
-    return (1 << x) * (2 * y + 1);
+    Some((x, y)).encode()
 }
 // <x,y> = (2^x)*(2y+1)-1
 // NOT NULLABLE // NORMAL ONE
 fn encode_pair2(x: u128, y: u128) -> u128 {
-    return encode_pair1(x, y) - 1;
+    (x, y).encode()
 }
 fn encode_list_to_godel(l: &[u128]) -> u128 {
-    return l.iter().rev()
-        .fold(0, |x, &y| encode_pair1(y, x));
+    l.encode()
 }
 fn encode_instruction(instruction: &Instruction) -> u128 {
-    return match *instruction {
-        Add(i, j) => encode_pair1(2 * i, j as u128),
-        Sub(i, j, k) => encode_pair1(2 * i + 1, encode_pair2(j as u128, k as u128)),
-        Halt => 0
-    }
+    instruction.encode()
 }
 
 fn encode_program_to_list(program: &[Instruction]) -> Vec<u128> {
-    return program.iter().map(encode_instruction).collect();
+    program.iter().map(Encodable::encode).collect()
 }
 fn count_trailing_zeros(mut n: u128) -> u128 {
     // PRE: n /= 0
@@ -84,45 +211,21 @@ fn count_trailing_zeros(mut n: u128) -> u128 {
 // a = (2^x)*(2y+1)
 // NULLABLE
 fn decode_pair1(a: u128) -> (u128, u128) {
-    return decode_pair2(a - 1);
+    decode::<Option<(u128, u128)>>(a).unwrap()
 }
 // a = (2^x)*(2y+1)-1
 // NOT NULLABLE
 fn decode_pair2(a: u128) -> (u128, u128) {
-    let x = count_trailing_zeros(a + 1);
-    let y = (a + 1) >> (x + 1);
-
-    return (x, y);
+    decode(a)
 }
-fn decode_godel_to_list(mut g: u128) -> Vec<u128> {
-    let mut list = vec!();
-
-    while g != 0 {
-        let (head, tail) = decode_pair1(g);
-
-        g = tail;
-
-        list.push(head);
-    }
-
-    return list;
+fn decode_godel_to_list(g: u128) -> Vec<u128> {
+    decode(g)
 }
 fn decode_instruction(n: u128) -> Instruction {
-    if n == 0 { return Halt; }
-
-    let (f, arg) = decode_pair1(n);
-
-    if f % 2 == 0 {
-        // EVEN: add
-        return Add(f / 2, arg as usize);
-    } else {
-        // ODD: sub
-        let (j, k) = decode_pair2(arg);
-        return Sub((f - 1) / 2, j as usize, k as usize);
-    }
+    decode(n)
 }
 fn decode_list_to_program(program: &[u128]) -> Vec<Instruction> {
-    return program.iter().map(|&n| decode_instruction(n)).collect()
+    program.iter().map(|&g| decode(g)).collect()
 }
 
 fn main() {
