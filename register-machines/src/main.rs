@@ -1,10 +1,10 @@
 use std::{collections::HashMap, vec};
-use rug::{Integer, ops::Pow};
+use rug::{Integer, ops::Pow, Complete};
 
 type Godel = Integer; 
 type Label = usize;
 type Register = u128;
-type State = (Label, HashMap<Register, u128>);
+type State = (Label, HashMap<Register, Godel>);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Instruction {
@@ -17,10 +17,10 @@ impl Instruction {
     pub fn encode_instruction(&self) -> Godel {
         match self {
             Add(i, j) => 
-                encode_pair1(Godel::from(2 * i), Godel::from(*j)),
+                encode_pair1(&Godel::from(2 * i), &Godel::from(*j)),
             Sub(i, j, k) => 
-                encode_pair1(Godel::from(2 * i + 1),
-                encode_pair2(Godel::from(*j), Godel::from(*k))
+                encode_pair1(&Godel::from(2 * i + 1),
+                &encode_pair2(&Godel::from(*j), &Godel::from(*k))
             ),
             Halt => Godel::ZERO
         }
@@ -34,12 +34,12 @@ fn eval_program(program: &[Instruction], state: &State) -> State {
     while ins != Halt {
         match ins {
             Add(i, j) => {
-                let v = rs.entry(i).or_insert(0);
+                let v = rs.entry(i).or_insert(Godel::new());
                 *v += 1;
                 l = j; 
             },
             Sub(i, j, k) => {
-                let v = rs.entry(i).or_insert(0); 
+                let v = rs.entry(i).or_insert(Godel::new()); 
                 if *v != 0 {
                     *v -= 1;
                     l = j;
@@ -54,24 +54,24 @@ fn eval_program(program: &[Instruction], state: &State) -> State {
     (l, rs)
 }
 // <<x,y>> = (2^x)*(2y+1)
-fn encode_pair1(x: Godel, y: Godel) -> Godel {
+fn encode_pair1(x: &Godel, y: &Godel) -> Godel {
     let left: Godel = Godel::from(2).pow(x.to_u32_wrapping());
     let right: Godel = Godel::from(2) * y + Godel::from(1);
     left * right
 }
 // <x,y> = (2^x)*(2y+1)-1
-fn encode_pair2(x: Godel, y: Godel) -> Godel {
+fn encode_pair2(x: &Godel, y: &Godel) -> Godel {
     encode_pair1(x, y) - Godel::from(1)
 }
 fn encode_list_to_godel(l: &[Godel]) -> Godel {
     if l.is_empty() { return Godel::ZERO; } 
-    encode_pair1(l[0].clone(), encode_list_to_godel(&l[1..])) 
+    encode_pair1(&l[0], &encode_list_to_godel(&l[1..])) 
 }
 fn encode_program_to_list(program: &[Instruction]) -> Vec<Godel> {
     program.iter().map(Instruction::encode_instruction).collect()
 }
-fn trailing_zeros_in_binary(x: Godel) -> Godel {
-    let mut b = x; 
+fn trailing_zeros_in_binary(x: &Godel) -> Godel {
+    let mut b = x.clone(); 
     let mut c = Godel::new();
     if b != 0 {
         b = (b.clone() ^ (b - 1)) >> 1; 
@@ -83,37 +83,37 @@ fn trailing_zeros_in_binary(x: Godel) -> Godel {
     c
     // in theory it should be infinity, but rug does not support such calls 
 }
-fn decode_instruction(ins: Godel) -> Instruction {
-    if ins == 0 { return Halt; }
+fn decode_instruction(ins: &Godel) -> Instruction {
+    if *ins == 0 { return Halt; }
     let (x, y) = decode_pair1(ins); 
     let i: Godel = x.clone() / 2;
     if x % 2 != 0 {
-        let (j, k) = decode_pair2(y);
+        let (j, k) = decode_pair2(&y);
         Sub(i.try_into().unwrap(), j.try_into().unwrap(), k.try_into().unwrap())
     } else {
         Add(i.try_into().unwrap(), y.try_into().unwrap())
     }
 }
 // a = (2^x)*(2y+1)
-fn decode_pair1(a: Godel) -> (Godel, Godel) {
-    let x: Godel = trailing_zeros_in_binary(a.clone()); 
-    let z: Godel = a / Godel::from(2).pow(x.to_u32_wrapping()); 
+fn decode_pair1(a: &Godel) -> (Godel, Godel) {
+    let x: Godel = trailing_zeros_in_binary(a); 
+    let z = Godel::from(a >> x.to_u32_wrapping());
     let y: Godel = (z - 1) / 2;
     (x, y)
 }
 // a = (2^x)*(2y+1)-1
-fn decode_pair2(a: Godel) -> (Godel, Godel) {
-    decode_pair1(a + 1)
+fn decode_pair2(a: &Godel) -> (Godel, Godel) {
+    decode_pair1(&Godel::from(a + 1))
 }
-fn decode_godel_to_list(g: Godel) -> Vec<Godel> {
-    if g == 0 { return Vec::new(); }
+fn decode_godel_to_list(g: &Godel) -> Vec<Godel> {
+    if *g == 0 { return Vec::new(); }
     let (x, xs) = decode_pair1(g);
     let mut gs = vec![x]; 
-    gs.splice(gs.len().., decode_godel_to_list(xs));
+    gs.splice(gs.len().., decode_godel_to_list(&xs));
     gs 
 }
 fn decode_list_to_program(program: &[Godel]) -> Vec<Instruction> {
-    program.iter().map(|x| decode_instruction(x.clone())).collect()
+    program.iter().map(|x| decode_instruction(x)).collect()
 }
 
 fn main() {
@@ -129,14 +129,14 @@ mod test {
 
     #[test] 
     fn godel_zero_num_decodes_to_halt() {
-        let ins = decode_instruction(Godel::ZERO);
+        let ins = decode_instruction(&Godel::ZERO);
         assert_eq!(ins, Halt);
     }
 
     #[test]
     fn godel_num_to_godel_list() {
         let n = Godel::from(2).pow(46) * 20483;
-        let godel_list: Vec<Godel> = decode_godel_to_list(n);
+        let godel_list: Vec<Godel> = decode_godel_to_list(&n);
         let true_godel_list: Vec<Godel> = vec![46, 0, 10, 1].iter().map(|x| Godel::from(x.clone())).collect();
         assert_eq!(godel_list, true_godel_list)
     }
@@ -144,7 +144,7 @@ mod test {
     #[test]
     fn godel_num_to_godel_list_large_num() {
         let n = Godel::from(2).pow(216) * 833;
-        let godel_list: Vec<Godel> = decode_godel_to_list(n);
+        let godel_list: Vec<Godel> = decode_godel_to_list(&n);
         let true_godel_list: Vec<Godel> = vec![216, 5, 1, 0].iter().map(|x| Godel::from(x.clone())).collect();
         assert_eq!(godel_list, true_godel_list) 
     }
@@ -199,14 +199,14 @@ mod test {
             &program,
             &(
                 0,
-                HashMap::<_, _>::from_iter(IntoIter::new([(0, 0), (1, 7)]))
+                HashMap::<_, _>::from_iter(IntoIter::new([(0, Godel::from(0)), (1, Godel::from(7))]))
             ),
         );
         assert_eq!(
             final_state,
             (
                 4,
-                HashMap::<_, _>::from_iter(IntoIter::new([(0, 2), (1, 0)]))
+                HashMap::<_, _>::from_iter(IntoIter::new([(0, Godel::from(2)), (1, Godel::from(0))]))
             )
         )
     }
