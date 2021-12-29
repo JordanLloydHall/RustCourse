@@ -96,20 +96,8 @@ impl Decodable for usize {
 
 impl<T: Decodable, V: Decodable> Decodable for (T, V) {
     fn decode(godel: Godel) -> Self {
-        fn count_trailing_zeros(mut n: u128) -> u128 {
-            // PRE: n /= 0
-            let mut zeros = 0;
-
-            while n % 2 == 0 {
-                zeros += 1;
-                n >>= 1;
-            }
-
-            return zeros;
-        }
-
-        let x_godel = count_trailing_zeros(godel + 1);
-        let y_godel = (godel + 1) >> (x_godel + 1);
+        let x_godel = godel.trailing_ones() as Godel;
+        let y_godel = godel >> (x_godel + 1);
 
         (decode(x_godel), decode(y_godel))
     }
