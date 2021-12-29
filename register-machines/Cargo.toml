@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "reference"
+path = "src/reference_solution.rs"
+
 [dependencies]
 num-bigint = "0.4.3"
 num-traits = "0.2.14"

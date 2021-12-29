@@ -103,6 +103,10 @@ pub fn encode_list_to_godel(l: &[u128]) -> u128 {
     l.iter().rev().fold(0, |acc, v| encode_pair1(*v, acc))
 }
 
+fn main() {
+
+}
+
 #[test]
 fn godel_num_to_godel_list() {
     let n = 2u128.pow(46) * 20483;
@@ -144,7 +148,7 @@ fn program_produces_correct_state() {
         &program,
         &(
             0,
-            HashMap::<_, _>::from_iter(IntoIter::new([(0, 0), (1, 7)])),
+            HashMap::<_, _>::from_iter(IntoIter::new([(1, 7)])),
         ),
     );
     assert_eq!(
