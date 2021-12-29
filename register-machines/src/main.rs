@@ -154,7 +154,7 @@ use Instruction::*;
 fn eval_program(program: &[Instruction], init: &State) -> State {
     let (mut label, mut registers) = init.clone();
 
-    loop {
+    while label < program.len() {
         /* Reveal effects of instruction to state. */
         match program[label] {
             Add(reg, l) => {
