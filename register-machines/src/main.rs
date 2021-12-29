@@ -29,15 +29,21 @@ impl Encodable for u128 {
     }
 }
 
+impl Encodable for i32 {
+    fn encode(&self) -> Godel {
+        *self as u128
+    }
+}
+
 impl Encodable for usize {
     fn encode(&self) -> Godel {
-        (*self as u128).encode()
+        *self as u128
     }
 }
 
 impl<T: Encodable, V: Encodable> Encodable for (T, V) {
     fn encode(&self) -> Godel {
-        let (x, y) = &self;
+        let (x, y) = self;
         (1 << x.encode()) * (2 * y.encode() + 1) - 1
     }
 }
@@ -61,7 +67,7 @@ impl Encodable for Instruction {
     }
 }
 
-impl<T: Encodable> Encodable for &[T] {
+impl<T: Encodable> Encodable for [T] {
     fn encode(&self) -> Godel {
         self.iter()
             .rev()
@@ -90,6 +96,18 @@ impl Decodable for usize {
 
 impl<T: Decodable, V: Decodable> Decodable for (T, V) {
     fn decode(godel: Godel) -> Self {
+        fn count_trailing_zeros(mut n: u128) -> u128 {
+            // PRE: n /= 0
+            let mut zeros = 0;
+
+            while n % 2 == 0 {
+                zeros += 1;
+                n >>= 1;
+            }
+
+            return zeros;
+        }
+
         let x_godel = count_trailing_zeros(godel + 1);
         let y_godel = (godel + 1) >> (x_godel + 1);
 
@@ -146,90 +164,47 @@ fn decode<T: Decodable>(godel: Godel) -> T {
 use Instruction::*;
 
 fn eval_program(program: &[Instruction], init: &State) -> State {
-    let mut state = init.clone();
-    let (label, registers) = &mut state;
+    let (mut label, mut registers) = init.clone();
 
     loop {
         /* Reveal effects of instruction to state. */
-        match program[*label] {
+        match program[label] {
             Add(reg, l) => {
                 /* Increment target register. */
                 *registers.get_mut(&reg).unwrap() += 1;
     
                 /* Jump to label. */
-                *label = l;
+                label = l;
             },
             Sub(reg, lsub, lnop) => {
                 let register = registers.get_mut(&reg).unwrap();
     
                 if *register == 0 {
                     /* Register can't be decremented. */
-                    *label = lnop;
+                    label = lnop;
                 } else {
                     /* Decrement register. */
                     *register -= 1;
-                    *label = lsub;
+                    label = lsub;
                 }
             },
             Halt => { break; },
         };
     }
 
-    return state;
-}
-// <<x,y>> = (2^x)*(2y+1)
-// NULLABLE
-fn encode_pair1(x: u128, y: u128) -> u128 {
-    Some((x, y)).encode()
-}
-// <x,y> = (2^x)*(2y+1)-1
-// NOT NULLABLE // NORMAL ONE
-fn encode_pair2(x: u128, y: u128) -> u128 {
-    (x, y).encode()
-}
-fn encode_list_to_godel(l: &[u128]) -> u128 {
-    l.encode()
-}
-fn encode_instruction(instruction: &Instruction) -> u128 {
-    instruction.encode()
+    return (label, registers);
 }
 
 fn encode_program_to_list(program: &[Instruction]) -> Vec<u128> {
     program.iter().map(Encodable::encode).collect()
 }
-fn count_trailing_zeros(mut n: u128) -> u128 {
-    // PRE: n /= 0
-    let mut zeros = 0;
 
-    while n % 2 == 0 {
-        zeros += 1;
-        n >>= 1;
-    }
-
-    return zeros;
-}
-// a = (2^x)*(2y+1)
-// NULLABLE
-fn decode_pair1(a: u128) -> (u128, u128) {
-    decode::<Option<(u128, u128)>>(a).unwrap()
-}
-// a = (2^x)*(2y+1)-1
-// NOT NULLABLE
-fn decode_pair2(a: u128) -> (u128, u128) {
-    decode(a)
-}
-fn decode_godel_to_list(g: u128) -> Vec<u128> {
-    decode(g)
-}
-fn decode_instruction(n: u128) -> Instruction {
-    decode(n)
-}
 fn decode_list_to_program(program: &[u128]) -> Vec<Instruction> {
     program.iter().map(|&g| decode(g)).collect()
 }
 
 fn main() {
-    println!("{}", encode_instruction(&Sub(0, 2, 1)));
+    
 }
 
 mod test {
@@ -237,14 +212,14 @@ mod test {
     #[test]
     fn godel_num_to_godel_list() {
         let n = 2u128.pow(46) * 20483;
-        let godel_list = decode_godel_to_list(n);
+        let godel_list = decode::<Vec<u128>>(n);
         let true_godel_list = vec![46, 0, 10, 1];
         assert_eq!(godel_list, true_godel_list)
     }
 
     #[test]
     fn godel_list_to_godel_num() {
-        let godel_num = encode_list_to_godel(&[46, 0, 10, 1]);
+        let godel_num = (&[46, 0, 10, 1]).encode();
         assert_eq!(godel_num, 2u128.pow(46) * 20483)
     }
 
