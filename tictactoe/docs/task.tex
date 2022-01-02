@@ -63,6 +63,9 @@ three-in-a-row ( $3,3,3-game$, or Tic Tac Toe), we have a board of size m-by-n
 and the goal is to get k-in-a-row. Note that $k \le \max\{ m, n\} $ if the game
 is not to always end in a draw.
 
+Note that for the purposes of this lab, an $m,n,k-game$ has the same ruleset as 
+Tic Tac Toe, and there are no other rules.
+
 \section*{The AI}
 As computing students, there's a large probability that we're not going to be
 playing the game with other people. This is where an AI would come in handy. 
@@ -93,7 +96,7 @@ may come accross.
 
 \section*{Extensions}
 
-For this lab we have elected to run two extensions:
+For this lab we have elected to run three extensions:
 \subsection*{Extension A}
 There exist \href{https://en.wikipedia.org/wiki/Tic-tac-toe_variants}{other variants of Tic Tac Toe} (most notably \href{https://en.wikipedia.org/wiki/Quantum_tic-tac-toe}{Quantum Tic Tac Toe}).
 Pick one of these variants and implement it so that:
@@ -102,9 +105,16 @@ Pick one of these variants and implement it so that:
     \item The AI you developed can still play it (doesn't have to be fast)
 \end{itemize}
 
-\subsection*{Extension B}
+\subsection*{Extension B} 
+Notice that the Game trait is generic enough to be used for any discrete, turn-based game.
+Try implementing an engine for any game that fits this category. For more complex games,
+the number of possible states becomes too large for a non-heuristic AI to search.
+Solve this problem by making a HeuristicMinimax, that requires a game to also implement 
+some sort of Heuristic trait in order to be used.
+
+\subsection*{Extension C}
 Minimax is a great search method for finding the best move to play in a game, but
-has some major draw-backs such as it's speed and large stack usage. There also 
+has some major draw-backs such as it's speed or need of a heuristic for larger boards. There also 
 exist other search methods suited towards turn-based games (such as the \href{https://en.wikipedia.org/wiki/Monte_Carlo_tree_search}{Monte Carlo tree search}).
 Implement such an AI using a different search strategy and compare how well it works
 against your minimax algorithm.
