@@ -63,10 +63,12 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
     }
 
     fn iter2d(&self) -> impl Iterator<Item = ((usize, usize), &Option<Player>)> {
-        self.board
-            .iter()
-            .enumerate()
-            .flat_map(|(r, row_cells)| row_cells.iter().enumerate().map(move |(c, cell)| ((r, c), cell)))
+        self.board.iter().enumerate().flat_map(|(r, row_cells)| {
+            row_cells
+                .iter()
+                .enumerate()
+                .map(move |(c, cell)| ((r, c), cell))
+        })
     }
 
     // Check if moves supplied contain at least one K-in-a-row combination for the specified player
@@ -109,10 +111,7 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
     // Time complexity: O(K)
     fn check_current_move(&self) -> Option<GameResult> {
         let current_move = self.move_sequence.last();
-
-        if current_move.is_none() {
-            return None;
-        }
+        current_move?;
 
         let &(r, c) = current_move.unwrap();
         let (r32, c32) = (r as i32, c as i32);
@@ -121,10 +120,11 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
 
         // Initialise horizontal and vertical ranges
         let horizontal = ((c32 - k32 + 1)..(c32 + k32))
-            .filter(|col| col + 1 >= k32 && col + k32 <= n32)
+            .filter(|&col| col >= 0 && col < n32)
             .map(|v| v as usize);
+
         let vertical = ((r32 - k32 + 1)..(r32 + k32))
-            .filter(|row| row + 1 >= k32 && row + k32 <= m32)
+            .filter(|&row| row >= 0 && row < m32)
             .map(|v| v as usize);
 
         // Check horizontal moves
@@ -317,17 +317,25 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
 struct Minimax;
 
 impl Minimax {
+    const WIN_VAL: i32 = i32::MAX;
+    const LOSE_VAL: i32 = i32::MIN;
+
     fn evaluate<G: Game>(&self, game: &G, depth: i32) -> i32 {
-        const WIN_VAL: i32 = i32::MAX;
-        const LOSE_VAL: i32 = i32::MIN;
         match game.winner() {
-            Some(GameResult::PlayerWon(Player::Player1)) => WIN_VAL - depth,
-            Some(GameResult::PlayerWon(Player::Player2)) => LOSE_VAL + depth,
+            Some(GameResult::PlayerWon(Player::Player1)) => Minimax::WIN_VAL - depth,
+            Some(GameResult::PlayerWon(Player::Player2)) => Minimax::LOSE_VAL + depth,
             _ => 0,
         }
     }
 
-    fn minimax<G: Game>(&self, game: &mut G, depth: i32, player: Player) -> i32 {
+    fn alphabeta<G: Game>(
+        &self,
+        game: &mut G,
+        depth: i32,
+        mut alpha: i32,
+        mut beta: i32,
+        player: Player,
+    ) -> i32 {
         if game.winner().is_some() {
             return self.evaluate(game, depth);
         }
@@ -337,19 +345,33 @@ impl Minimax {
                 let mut eval = i32::MIN;
                 for m in game.moves() {
                     game.execute_move(m.clone()).unwrap();
-                    eval = cmp::max(eval, self.minimax(game, depth + 1, Player::Player2));
+                    eval = cmp::max(
+                        eval,
+                        self.alphabeta(game, depth + 1, alpha, beta, Player::Player2),
+                    );
                     game.undo_move(m).unwrap();
+                    if eval >= beta {
+                        break;
+                    }
+                    alpha = cmp::max(alpha, eval);
                 }
-                return eval;
+                eval
             }
             Player::Player2 => {
                 let mut eval = i32::MAX;
                 for m in game.moves() {
                     game.execute_move(m.clone()).unwrap();
-                    eval = cmp::min(eval, self.minimax(game, depth + 1, Player::Player1));
+                    eval = cmp::min(
+                        eval,
+                        self.alphabeta(game, depth + 1, alpha, beta, Player::Player1),
+                    );
                     game.undo_move(m.clone()).unwrap();
+                    if eval <= alpha {
+                        break;
+                    }
+                    beta = cmp::min(beta, eval);
                 }
-                return eval;
+                eval
             }
         }
     }
@@ -360,7 +382,13 @@ impl Minimax {
             .iter()
             .map(|m| {
                 game.execute_move(m.clone()).unwrap();
-                let eval = self.minimax(game, 0, Player::Player2);
+                let eval = self.alphabeta(
+                    game,
+                    0,
+                    Minimax::LOSE_VAL,
+                    Minimax::WIN_VAL,
+                    Player::Player2,
+                );
                 game.undo_move(m.clone()).unwrap();
                 (m.clone(), eval)
             })
@@ -383,7 +411,7 @@ fn parse_input(s: &str) -> Result<(usize, usize), Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    let mut b: MNKBoard<4, 4, 4> = MNKBoard::new();
+    let mut b: MNKBoard<3, 3, 3> = MNKBoard::new();
     let mut ai = Minimax;
     let mut player = Player::Player1;
     println!("{}", b);
@@ -585,6 +613,48 @@ mod test {
             ],
             move_sequence: vec![],
             current_player: Player1,
+        };
+
+        assert_eq!(board.winner(), Some(PlayerWon(Player1)));
+    }
+
+    #[test]
+    fn check_result_by_last_move() {
+        let board = MNKBoard::<3, 3, 3> {
+            ply: 5,
+            board: [
+                [Some(Player1), Some(Player1), Some(Player1)],
+                [None, Some(Player2), None],
+                [None, Some(Player2), None],
+            ],
+            move_sequence: vec![(0, 0)],
+            current_player: Player2,
+        };
+
+        assert_eq!(board.winner(), Some(PlayerWon(Player1)));
+
+        let board = MNKBoard::<3, 3, 3> {
+            ply: 5,
+            board: [
+                [Some(Player1), Some(Player1), Some(Player1)],
+                [None, Some(Player2), None],
+                [None, Some(Player2), None],
+            ],
+            move_sequence: vec![(0, 1)],
+            current_player: Player2,
+        };
+
+        assert_eq!(board.winner(), Some(PlayerWon(Player1)));
+
+        let board = MNKBoard::<3, 3, 3> {
+            ply: 5,
+            board: [
+                [Some(Player1), Some(Player1), Some(Player1)],
+                [None, Some(Player2), None],
+                [None, Some(Player2), None],
+            ],
+            move_sequence: vec![(0, 2)],
+            current_player: Player2,
         };
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
