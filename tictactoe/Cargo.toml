@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 strum = { version = "0.23", features = ["derive"] }
+itertools = "0.10.2"
+colored = "2"
