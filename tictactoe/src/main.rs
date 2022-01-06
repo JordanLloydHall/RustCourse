@@ -82,7 +82,6 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
         let mut to_remove: usize = 0;
         let remainder = moves.split_off(K);
 
-        // TODO: replace with for each
         for &&m in &moves {
             *count.entry(m).or_insert(0) += 1;
         }
@@ -91,7 +90,6 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
             return true;
         }
 
-        // TODO: replace with windows
         for &&m in &remainder {
             *count.entry(*moves[to_remove]).or_insert(0) -= 1;
             *count.entry(m).or_insert(0) += 1;
@@ -102,9 +100,6 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
         }
 
         false
-        // moves.windows(K)
-        //      .map(|ms| ms.iter().filter(|&&&m| m == Some(player)))
-        //      .any(|ms| ms.count() == K)
     }
 
     // Check if current move results in the win of the current player
@@ -249,7 +244,6 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
 
     // Generate list of legal moves that can be made by a player
     // Time complexity: O(M * N)
-    // TODO: use HashSet to improve time
     fn moves(&self) -> Vec<Self::Move> {
         self.iter2d()
             .filter(|(_, c)| c.is_none())
@@ -307,7 +301,7 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
                     self.current_player = self.current_player.get_last();
                 }
 
-                self.ply = pos - 1;
+                self.ply = pos;
                 Ok(())
             }
         }
@@ -322,8 +316,8 @@ impl Minimax {
 
     fn evaluate<G: Game>(&self, game: &G, depth: i32) -> i32 {
         match game.winner() {
-            Some(GameResult::PlayerWon(Player::Player1)) => Minimax::WIN_VAL - depth,
-            Some(GameResult::PlayerWon(Player::Player2)) => Minimax::LOSE_VAL + depth,
+            Some(GameResult::PlayerWon(Player::Player1)) => Minimax::WIN_VAL,
+            Some(GameResult::PlayerWon(Player::Player2)) => Minimax::LOSE_VAL,
             _ => 0,
         }
     }
@@ -341,6 +335,7 @@ impl Minimax {
         }
 
         match player {
+            // maximising player 
             Player::Player1 => {
                 let mut eval = i32::MIN;
                 for m in game.moves() {
@@ -357,6 +352,7 @@ impl Minimax {
                 }
                 eval
             }
+            // minimising player 
             Player::Player2 => {
                 let mut eval = i32::MAX;
                 for m in game.moves() {
@@ -385,9 +381,9 @@ impl Minimax {
                 let eval = self.alphabeta(
                     game,
                     0,
-                    Minimax::LOSE_VAL,
-                    Minimax::WIN_VAL,
-                    Player::Player2,
+                    i32::MIN,
+                    i32::MAX,
+                    Player::Player1,
                 );
                 game.undo_move(m.clone()).unwrap();
                 (m.clone(), eval)
@@ -396,7 +392,7 @@ impl Minimax {
 
         let (best_move, _) = move_evals
             .iter()
-            .max_by(|(_, v1), (_, v2)| v1.cmp(v2))
+            .min_by(|(_, v1), (_, v2)| v1.cmp(v2))
             .unwrap();
         best_move.clone()
     }
@@ -411,13 +407,14 @@ fn parse_input(s: &str) -> Result<(usize, usize), Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    let mut b: MNKBoard<3, 3, 3> = MNKBoard::new();
+    let mut b: MNKBoard<4, 4, 4> = MNKBoard::new();
     let mut ai = Minimax;
     let mut player = Player::Player1;
     println!("{}", b);
     while b.winner().is_none() {
         match player {
             Player::Player1 => {
+                assert_eq!(b.current_player, Player::Player1);
                 let mut line = String::new();
                 std::io::stdin().read_line(&mut line).unwrap();
                 if let Ok(pos) = parse_input(line.as_str()) {
@@ -432,12 +429,20 @@ fn main() {
                 }
             }
             Player::Player2 => {
+                assert_eq!(b.current_player, Player::Player2);
                 let ai_move = ai.next_move(&mut b);
                 b.execute_move(ai_move).unwrap();
                 println!("{}", b);
             }
         }
         player = player.get_next();
+    }
+
+    match b.winner() {
+        Some(GameResult::PlayerWon(Player::Player1)) => { println!("The winner is: {}", "O".blue().bold()); }
+        Some(GameResult::PlayerWon(Player::Player2)) => { println!("The winner is: {}", "X".red().bold()); }
+        Some(GameResult::Draw) => { println!("The game is drawn!"); }
+        None => {}
     }
 }
 
@@ -658,5 +663,38 @@ mod test {
         };
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
+    }
+
+    #[test] 
+    fn check_current_player_cycle() {
+        let mut board = MNKBoard::<3, 3, 3>::new();
+        assert_eq!(board.current_player, Player1);
+        board.execute_move((0, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.execute_move((0, 0)).unwrap();
+        
+        assert_eq!(board.current_player, Player1);
+        board.execute_move((1, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.execute_move((2, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player1);
+        board.execute_move((2, 0)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.execute_move((1, 0)).unwrap();
+
+        assert_eq!(board.current_player, Player1);
+        board.execute_move((1, 2)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.execute_move((0, 2)).unwrap();
+
+        assert_eq!(board.current_player, Player1);
+        board.execute_move((2, 2)).unwrap();
+
+        assert_eq!(board.winner(), Some(Draw));
     }
 }
