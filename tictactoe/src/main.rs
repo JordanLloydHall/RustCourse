@@ -1,9 +1,14 @@
 use colored::*;
 use itertools::Itertools;
-use std::{cmp, collections::HashMap, fmt};
-use strum::{EnumIter, IntoEnumIterator};
+use rand::Rng;
+use std::{
+    cmp,
+    collections::{HashMap, HashSet},
+    fmt,
+};
+use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
-#[derive(PartialEq, Copy, Clone, Debug, EnumIter, Eq, Hash)]
+#[derive(PartialEq, Copy, Clone, Debug, EnumIter, EnumCount, Eq, Hash)]
 enum Player {
     Player1,
     Player2,
@@ -44,12 +49,15 @@ trait Game {
     fn undo_move(&mut self, player_move: Self::Move) -> Result<(), GameError>;
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct MNKBoard<const M: usize, const N: usize, const K: usize> {
     ply: usize,
     board: [[Option<Player>; N]; M],
     move_sequence: Vec<<MNKBoard<M, N, K> as Game>::Move>,
     current_player: Player,
+    hash: u64,
+    hash_gen: MNKZobrist<M, N, K>,
+    transposition_table: HashMap<u64, EvalEntry<MNKBoard<M, N, K>>>,
 }
 
 impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
@@ -59,6 +67,34 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
             board: [[None; N]; M],
             move_sequence: vec![],
             current_player: Player::Player1,
+            hash: 0,
+            hash_gen: MNKZobrist::new(),
+            transposition_table: HashMap::new(),
+        }
+    }
+
+    fn load_board(board: [[Option<Player>; N]; M], current_player: Player) -> Self {
+        let hash_gen = MNKZobrist::<M, N, K>::new();
+        let mut hash = 0;
+        let mut ply = 0;
+
+        for (r, row) in board.iter().enumerate() {
+            for (c, cell) in row.iter().enumerate() {
+                if let Some(p) = cell {
+                    hash ^= hash_gen.get_hash(*p, r, c);
+                    ply += 1;
+                }
+            }
+        }
+
+        MNKBoard {
+            ply: ply,
+            board: board,
+            move_sequence: vec![],
+            current_player: current_player,
+            hash: hash,
+            hash_gen: hash_gen,
+            transposition_table: HashMap::new(),
         }
     }
 
@@ -278,6 +314,7 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
 
         self.ply += 1;
         self.board[r][c] = Some(self.current_player);
+        self.hash ^= self.hash_gen.get_hash(self.current_player, r, c);
         self.current_player = self.current_player.get_next();
         self.move_sequence.push(player_move);
         Ok(())
@@ -292,20 +329,74 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
             Some(pos) => {
                 // ply = pos + 1
                 let removed_moves = self.move_sequence.drain(pos..);
-                removed_moves
-                    .into_iter()
-                    .for_each(|(r, c)| self.board[r][c] = None);
-
                 let removed_ply_count = self.ply - pos;
                 if removed_ply_count % 2 != 0 {
                     self.current_player = self.current_player.get_last();
                 }
-
                 self.ply = pos;
+
+                // TODO: check hash validity
+                let cur_player = self.current_player.get_next();
+                for (r, c) in removed_moves.into_iter() {
+                    self.board[r][c] = None;
+                    self.hash ^= self.hash_gen.get_hash(cur_player, r, c);
+                }
+
                 Ok(())
             }
         }
     }
+}
+
+trait Zobrist {
+    type Hash;
+    fn get_hash(&self, player: Player, row: usize, col: usize) -> u64;
+}
+
+#[derive(Clone, Debug)]
+struct MNKZobrist<const M: usize, const N: usize, const K: usize> {
+    hash_values: [[[<Self as Zobrist>::Hash; N]; M]; Player::COUNT],
+}
+
+impl<const M: usize, const N: usize, const K: usize> MNKZobrist<M, N, K> {
+    fn new() -> Self {
+        let mut rng = rand::thread_rng();
+        let mut values: HashSet<u64> = HashSet::new();
+        while values.len() != Player::COUNT * M * N {
+            values.insert(rng.gen());
+        }
+
+        let values = Vec::from_iter(values);
+        let mut i = 0;
+
+        let mut table = [[[0; N]; M]; 2];
+        for board in table.iter_mut() {
+            for row in board.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = values[i];
+                    i += 1;
+                }
+            }
+        }
+
+        MNKZobrist { hash_values: table }
+    }
+}
+
+impl<const M: usize, const N: usize, const K: usize> Zobrist for MNKZobrist<M, N, K> {
+    type Hash = u64;
+
+    fn get_hash(&self, player: Player, row: usize, col: usize) -> Self::Hash {
+        let pid = player as usize;
+        self.hash_values[pid][row][col]
+    }
+}
+
+#[derive(Clone, Debug)]
+struct EvalEntry<T: Game> {
+    depth: usize,
+    eval: i32,
+    best_move: T::Move,
 }
 
 struct Minimax;
@@ -314,7 +405,7 @@ impl Minimax {
     const WIN_VAL: i32 = i32::MAX;
     const LOSE_VAL: i32 = i32::MIN;
 
-    fn evaluate<G: Game>(&self, game: &G, depth: i32) -> i32 {
+    fn evaluate<G: Game>(&self, game: &G, depth: usize) -> i32 {
         match game.winner() {
             Some(GameResult::PlayerWon(Player::Player1)) => Minimax::WIN_VAL,
             Some(GameResult::PlayerWon(Player::Player2)) => Minimax::LOSE_VAL,
@@ -325,7 +416,7 @@ impl Minimax {
     fn alphabeta<G: Game>(
         &self,
         game: &mut G,
-        depth: i32,
+        depth: usize,
         mut alpha: i32,
         mut beta: i32,
         player: Player,
@@ -335,7 +426,7 @@ impl Minimax {
         }
 
         match player {
-            // maximising player 
+            // maximising player
             Player::Player1 => {
                 let mut eval = i32::MIN;
                 for m in game.moves() {
@@ -352,7 +443,7 @@ impl Minimax {
                 }
                 eval
             }
-            // minimising player 
+            // minimising player
             Player::Player2 => {
                 let mut eval = i32::MAX;
                 for m in game.moves() {
@@ -378,13 +469,7 @@ impl Minimax {
             .iter()
             .map(|m| {
                 game.execute_move(m.clone()).unwrap();
-                let eval = self.alphabeta(
-                    game,
-                    0,
-                    i32::MIN,
-                    i32::MAX,
-                    Player::Player1,
-                );
+                let eval = self.alphabeta(game, 0, i32::MIN, i32::MAX, Player::Player1);
                 game.undo_move(m.clone()).unwrap();
                 (m.clone(), eval)
             })
@@ -439,9 +524,15 @@ fn main() {
     }
 
     match b.winner() {
-        Some(GameResult::PlayerWon(Player::Player1)) => { println!("The winner is: {}", "O".blue().bold()); }
-        Some(GameResult::PlayerWon(Player::Player2)) => { println!("The winner is: {}", "X".red().bold()); }
-        Some(GameResult::Draw) => { println!("The game is drawn!"); }
+        Some(GameResult::PlayerWon(Player::Player1)) => {
+            println!("The winner is: {}", "O".blue().bold());
+        }
+        Some(GameResult::PlayerWon(Player::Player2)) => {
+            println!("The winner is: {}", "X".red().bold());
+        }
+        Some(GameResult::Draw) => {
+            println!("The game is drawn!");
+        }
         None => {}
     }
 }
@@ -450,16 +541,13 @@ mod test {
     use crate::{GameResult::*, Player::*, *};
     #[test]
     fn three_by_three_tests() {
-        let board = MNKBoard::<3, 3, 3> {
-            ply: 3,
-            board: [
-                [Some(Player1), None, None],
-                [Some(Player1), None, None],
-                [Some(Player1), None, None],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [Some(Player1), None, None],
+            [Some(Player1), None, None],
+            [Some(Player1), None, None],
+        ];
+
+        let board = MNKBoard::<3, 3, 3>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
         assert_eq!(
@@ -467,205 +555,163 @@ mod test {
             vec![(0, 1), (0, 2), (1, 1), (1, 2), (2, 1), (2, 2)]
         );
 
-        let board = MNKBoard::<3, 3, 3> {
-            ply: 3,
-            board: [
-                [None, Some(Player2), None],
-                [None, Some(Player2), None],
-                [None, Some(Player2), None],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [None, Some(Player2), None],
+            [None, Some(Player2), None],
+        ];
+
+        let board = MNKBoard::<3, 3, 3>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player2)));
 
-        let board = MNKBoard::<3, 3, 3> {
-            ply: 3,
-            board: [
-                [None, Some(Player2), None],
-                [None, Some(Player2), None],
-                [None, Some(Player1), None],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [None, Some(Player2), None],
+            [None, Some(Player1), None],
+        ];
+
+        let board = MNKBoard::<3, 3, 3>::load_board(board, Player1);
 
         assert_eq!(board.winner(), None);
 
-        let board = MNKBoard::<3, 3, 2> {
-            ply: 3,
-            board: [
-                [None, Some(Player2), None],
-                [None, Some(Player2), None],
-                [None, Some(Player1), None],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [None, Some(Player2), None],
+            [None, Some(Player1), None],
+        ];
+
+        let board = MNKBoard::<3, 3, 3>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player2)));
 
-        let board = MNKBoard::<3, 3, 3> {
-            ply: 5,
-            board: [
-                [None, Some(Player2), None],
-                [None, Some(Player1), None],
-                [Some(Player2), Some(Player2), Some(Player2)],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [None, Some(Player1), None],
+            [Some(Player2), Some(Player2), Some(Player2)],
+        ];
+
+        let board = MNKBoard::<3, 3, 3>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player2)));
 
-        let board = MNKBoard::<3, 3, 2> {
-            ply: 4,
-            board: [
-                [None, Some(Player2), None],
-                [None, Some(Player1), None],
-                [Some(Player2), None, Some(Player1)],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [None, Some(Player1), None],
+            [Some(Player2), None, Some(Player1)],
+        ];
+
+        let board = MNKBoard::<3, 3, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
 
-        let board = MNKBoard::<3, 3, 2> {
-            ply: 4,
-            board: [
-                [None, Some(Player2), None],
-                [Some(Player1), None, None],
-                [Some(Player2), Some(Player1), None],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [Some(Player1), None, None],
+            [Some(Player2), Some(Player1), None],
+        ];
+
+        let board = MNKBoard::<3, 3, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
         assert_eq!(board.moves(), vec![(0, 0), (0, 2), (1, 1), (1, 2), (2, 2)]);
 
-        let board = MNKBoard::<3, 3, 2> {
-            ply: 4,
-            board: [
-                [None, Some(Player2), None],
-                [Some(Player1), None, Some(Player2)],
-                [Some(Player2), None, None],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [Some(Player1), None, Some(Player2)],
+            [Some(Player2), None, None],
+        ];
+
+        let board = MNKBoard::<3, 3, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player2)));
 
-        let board = MNKBoard::<2, 3, 2> {
-            ply: 3,
-            board: [
-                [None, Some(Player2), None],
-                [Some(Player1), None, Some(Player2)],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [Some(Player1), None, Some(Player2)],
+        ];
+
+        let board = MNKBoard::<2, 3, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player2)));
 
-        let board = MNKBoard::<3, 2, 2> {
-            ply: 4,
-            board: [
-                [None, Some(Player2)],
-                [Some(Player1), None],
-                [Some(Player2), Some(Player1)],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2)],
+            [Some(Player1), None],
+            [Some(Player2), Some(Player1)],
+        ];
+
+        let board = MNKBoard::<3, 2, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
 
-        let board = MNKBoard::<3, 2, 2> {
-            ply: 4,
-            board: [
-                [None, Some(Player1)],
-                [None, Some(Player2)],
-                [Some(Player2), Some(Player1)],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player1)],
+            [None, Some(Player2)],
+            [Some(Player2), Some(Player1)],
+        ];
+
+        let board = MNKBoard::<3, 2, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player2)));
 
-        let board = MNKBoard::<2, 3, 2> {
-            ply: 3,
-            board: [
-                [None, Some(Player2), None],
-                [Some(Player2), None, Some(Player1)],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, Some(Player2), None],
+            [Some(Player2), None, Some(Player1)],
+        ];
+
+        let board = MNKBoard::<2, 3, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player2)));
 
-        let board = MNKBoard::<3, 3, 2> {
-            ply: 2,
-            board: [
-                [None, None, None],
-                [None, None, Some(Player1)],
-                [None, Some(Player1), None],
-            ],
-            move_sequence: vec![],
-            current_player: Player1,
-        };
+        let board = [
+            [None, None, None],
+            [None, None, Some(Player1)],
+            [None, Some(Player1), None],
+        ];
+
+        let board = MNKBoard::<3, 3, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
     }
 
     #[test]
     fn check_result_by_last_move() {
-        let board = MNKBoard::<3, 3, 3> {
-            ply: 5,
-            board: [
-                [Some(Player1), Some(Player1), Some(Player1)],
-                [None, Some(Player2), None],
-                [None, Some(Player2), None],
-            ],
-            move_sequence: vec![(0, 0)],
-            current_player: Player2,
-        };
+        let board = [
+            [Some(Player1), Some(Player1), Some(Player1)],
+            [None, Some(Player2), None],
+            [None, Some(Player2), None],
+        ];
+
+        let mut board = MNKBoard::<3, 3, 3>::load_board(board, Player2);
+        board.move_sequence = vec![(0, 0)];
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
 
-        let board = MNKBoard::<3, 3, 3> {
-            ply: 5,
-            board: [
-                [Some(Player1), Some(Player1), Some(Player1)],
-                [None, Some(Player2), None],
-                [None, Some(Player2), None],
-            ],
-            move_sequence: vec![(0, 1)],
-            current_player: Player2,
-        };
+        let board = [
+            [Some(Player1), Some(Player1), Some(Player1)],
+            [None, Some(Player2), None],
+            [None, Some(Player2), None],
+        ];
+
+        let mut board = MNKBoard::<3, 3, 3>::load_board(board, Player2);
+        board.move_sequence = vec![(0, 1)];
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
 
-        let board = MNKBoard::<3, 3, 3> {
-            ply: 5,
-            board: [
-                [Some(Player1), Some(Player1), Some(Player1)],
-                [None, Some(Player2), None],
-                [None, Some(Player2), None],
-            ],
-            move_sequence: vec![(0, 2)],
-            current_player: Player2,
-        };
+        let board = [
+            [Some(Player1), Some(Player1), Some(Player1)],
+            [None, Some(Player2), None],
+            [None, Some(Player2), None],
+        ];
+
+        let mut board = MNKBoard::<3, 3, 3>::load_board(board, Player2);
+        board.move_sequence = vec![(0, 2)];
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
     }
 
-    #[test] 
+    #[test]
     fn check_current_player_cycle() {
         let mut board = MNKBoard::<3, 3, 3>::new();
         assert_eq!(board.current_player, Player1);
@@ -673,7 +719,7 @@ mod test {
 
         assert_eq!(board.current_player, Player2);
         board.execute_move((0, 0)).unwrap();
-        
+
         assert_eq!(board.current_player, Player1);
         board.execute_move((1, 1)).unwrap();
 
