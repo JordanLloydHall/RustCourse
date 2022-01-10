@@ -5,6 +5,7 @@ use std::{
     cmp,
     collections::{HashMap, HashSet},
     fmt,
+    io::Write,
 };
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
@@ -43,6 +44,7 @@ enum GameError {
 
 trait Game {
     type Move: Clone;
+    type Hash;
     fn moves(&self) -> Vec<Self::Move>;
     fn winner(&self) -> Option<GameResult>;
     fn execute_move(&mut self, player_move: Self::Move) -> Result<(), GameError>;
@@ -56,8 +58,7 @@ struct MNKBoard<const M: usize, const N: usize, const K: usize> {
     move_sequence: Vec<<MNKBoard<M, N, K> as Game>::Move>,
     current_player: Player,
     hash: u64,
-    hash_gen: MNKZobrist<M, N, K>,
-    transposition_table: HashMap<u64, EvalEntry<MNKBoard<M, N, K>>>,
+    transposition: MNKTranspositionTable<M, N, K>,
 }
 
 impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
@@ -68,8 +69,7 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
             move_sequence: vec![],
             current_player: Player::Player1,
             hash: 0,
-            hash_gen: MNKZobrist::new(),
-            transposition_table: HashMap::new(),
+            transposition: MNKTranspositionTable::new(),
         }
     }
 
@@ -88,13 +88,12 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
         }
 
         MNKBoard {
-            ply: ply,
-            board: board,
+            ply,
+            board,
             move_sequence: vec![],
-            current_player: current_player,
-            hash: hash,
-            hash_gen: hash_gen,
-            transposition_table: HashMap::new(),
+            current_player,
+            hash,
+            transposition: MNKTranspositionTable::new(),
         }
     }
 
@@ -189,7 +188,11 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
             return Some(GameResult::PlayerWon(player));
         }
 
-        None
+        if self.ply == M * N {
+            Some(GameResult::Draw)
+        } else {
+            None
+        }
     }
 
     // Inspect the entire board to find a winner
@@ -252,7 +255,11 @@ impl<const M: usize, const N: usize, const K: usize> MNKBoard<M, N, K> {
             }
         }
 
-        None
+        if self.ply == M * N {
+            Some(GameResult::Draw)
+        } else {
+            None
+        }
     }
 }
 
@@ -277,6 +284,7 @@ impl<const M: usize, const N: usize, const K: usize> fmt::Display for MNKBoard<M
 
 impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> {
     type Move = (usize, usize);
+    type Hash = u64;
 
     // Generate list of legal moves that can be made by a player
     // Time complexity: O(M * N)
@@ -290,10 +298,6 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
     // Evaluate the game state to determine if there is a winner
     // An analysis for this function can be conducted to find amortized time complexity
     fn winner(&self) -> Option<GameResult> {
-        if self.ply == M * N {
-            return Some(GameResult::Draw);
-        }
-
         match self.move_sequence.last() {
             // Board preloaded with no move sequences given; inspect whole board to determine game result
             // Time complexity: O(M * N)
@@ -314,7 +318,10 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
 
         self.ply += 1;
         self.board[r][c] = Some(self.current_player);
-        self.hash ^= self.hash_gen.get_hash(self.current_player, r, c);
+        self.hash ^= self
+            .transposition
+            .hash_func
+            .get_hash(self.current_player, r, c);
         self.current_player = self.current_player.get_next();
         self.move_sequence.push(player_move);
         Ok(())
@@ -335,11 +342,15 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
                 }
                 self.ply = pos;
 
-                // TODO: check hash validity
-                let cur_player = self.current_player.get_next();
+                let mut cur_player = self.current_player;
                 for (r, c) in removed_moves.into_iter() {
                     self.board[r][c] = None;
-                    self.hash ^= self.hash_gen.get_hash(cur_player, r, c);
+                    println!(
+                        "{}",
+                        self.transposition.hash_func.get_hash(cur_player, r, c)
+                    );
+                    self.hash ^= self.transposition.hash_func.get_hash(cur_player, r, c);
+                    cur_player = cur_player.get_next();
                 }
 
                 Ok(())
@@ -348,14 +359,9 @@ impl<const M: usize, const N: usize, const K: usize> Game for MNKBoard<M, N, K> 
     }
 }
 
-trait Zobrist {
-    type Hash;
-    fn get_hash(&self, player: Player, row: usize, col: usize) -> u64;
-}
-
 #[derive(Clone, Debug)]
 struct MNKZobrist<const M: usize, const N: usize, const K: usize> {
-    hash_values: [[[<Self as Zobrist>::Hash; N]; M]; Player::COUNT],
+    hash_values: [[[<MNKBoard<M, N, K> as Game>::Hash; N]; M]; Player::COUNT],
 }
 
 impl<const M: usize, const N: usize, const K: usize> MNKZobrist<M, N, K> {
@@ -383,95 +389,172 @@ impl<const M: usize, const N: usize, const K: usize> MNKZobrist<M, N, K> {
     }
 }
 
-impl<const M: usize, const N: usize, const K: usize> Zobrist for MNKZobrist<M, N, K> {
-    type Hash = u64;
-
-    fn get_hash(&self, player: Player, row: usize, col: usize) -> Self::Hash {
+impl<const M: usize, const N: usize, const K: usize> MNKZobrist<M, N, K> {
+    fn get_hash(
+        &self,
+        player: Player,
+        row: usize,
+        col: usize,
+    ) -> <MNKBoard<M, N, K> as Game>::Hash {
         let pid = player as usize;
         self.hash_values[pid][row][col]
     }
 }
 
 #[derive(Clone, Debug)]
+struct MNKTranspositionTable<const M: usize, const N: usize, const K: usize> {
+    table: HashMap<<MNKBoard<M, N, K> as Game>::Hash, EvalEntry<MNKBoard<M, N, K>>>,
+    hash_func: MNKZobrist<M, N, K>,
+}
+
+impl<const M: usize, const N: usize, const K: usize> MNKTranspositionTable<M, N, K> {
+    fn new() -> Self {
+        MNKTranspositionTable {
+            table: HashMap::new(),
+            hash_func: MNKZobrist::<M, N, K>::new(),
+        }
+    }
+
+    fn get_entry(
+        &self,
+        hash: &<MNKBoard<M, N, K> as Game>::Hash,
+    ) -> Option<&EvalEntry<MNKBoard<M, N, K>>> {
+        self.table.get(hash)
+    }
+
+    fn update_eval(
+        &mut self,
+        hash: <MNKBoard<M, N, K> as Game>::Hash,
+        entry: EvalEntry<MNKBoard<M, N, K>>,
+    ) {
+        self.table.insert(hash, entry);
+    }
+}
+
+#[derive(Clone, Debug)]
 struct EvalEntry<T: Game> {
-    depth: usize,
     eval: i32,
     best_move: T::Move,
 }
 
-struct Minimax;
+struct MNKMinimax;
 
-impl Minimax {
+impl MNKMinimax {
     const WIN_VAL: i32 = i32::MAX;
     const LOSE_VAL: i32 = i32::MIN;
 
-    fn evaluate<G: Game>(&self, game: &G, depth: usize) -> i32 {
+    fn evaluate<const M: usize, const N: usize, const K: usize>(
+        &self,
+        game: &MNKBoard<M, N, K>,
+        _depth: i32,
+    ) -> i32 {
         match game.winner() {
-            Some(GameResult::PlayerWon(Player::Player1)) => Minimax::WIN_VAL,
-            Some(GameResult::PlayerWon(Player::Player2)) => Minimax::LOSE_VAL,
+            Some(GameResult::PlayerWon(Player::Player1)) => MNKMinimax::WIN_VAL,
+            Some(GameResult::PlayerWon(Player::Player2)) => MNKMinimax::LOSE_VAL,
             _ => 0,
         }
     }
 
-    fn alphabeta<G: Game>(
+    fn alphabeta<const M: usize, const N: usize, const K: usize>(
         &self,
-        game: &mut G,
-        depth: usize,
+        game: &mut MNKBoard<M, N, K>,
+        depth: i32,
         mut alpha: i32,
         mut beta: i32,
         player: Player,
     ) -> i32 {
+        if let Some(entry) = game.transposition.get_entry(&game.hash) {
+            return entry.eval;
+        }
+
         if game.winner().is_some() {
             return self.evaluate(game, depth);
         }
 
         match player {
-            // maximising player
+            // maximising player; Player
             Player::Player1 => {
+                let mut best_pos_hash: <MNKBoard<M, N, K> as Game>::Hash = 0;
+                let mut best_move: Option<<MNKBoard<M, N, K> as Game>::Move> = None;
                 let mut eval = i32::MIN;
+                let mut cutoff = false;
                 for m in game.moves() {
-                    game.execute_move(m.clone()).unwrap();
+                    game.execute_move(m).unwrap();
                     eval = cmp::max(
                         eval,
                         self.alphabeta(game, depth + 1, alpha, beta, Player::Player2),
                     );
-                    game.undo_move(m).unwrap();
                     if eval >= beta {
+                        cutoff = true;
+                    }
+                    if eval > alpha {
+                        alpha = eval;
+                        best_move = Some(m);
+                        best_pos_hash = game.hash;
+                    }
+                    game.undo_move(m).unwrap();
+                    if cutoff {
                         break;
                     }
-                    alpha = cmp::max(alpha, eval);
+                }
+
+                if !cutoff {
+                    if let Some(m) = best_move {
+                        let entry = EvalEntry { eval, best_move: m };
+                        game.transposition.update_eval(best_pos_hash, entry);
+                    }
                 }
                 eval
             }
-            // minimising player
+            // minimising player; AI
             Player::Player2 => {
+                let mut best_pos_hash: <MNKBoard<M, N, K> as Game>::Hash = 0;
+                let mut best_move: Option<<MNKBoard<M, N, K> as Game>::Move> = None;
                 let mut eval = i32::MAX;
+                let mut cutoff = false;
                 for m in game.moves() {
-                    game.execute_move(m.clone()).unwrap();
+                    game.execute_move(m).unwrap();
                     eval = cmp::min(
                         eval,
                         self.alphabeta(game, depth + 1, alpha, beta, Player::Player1),
                     );
-                    game.undo_move(m.clone()).unwrap();
                     if eval <= alpha {
+                        cutoff = true;
+                    }
+                    if beta < eval {
+                        beta = eval;
+                        best_move = Some(m);
+                        best_pos_hash = game.hash;
+                    }
+                    game.undo_move(m).unwrap();
+                    if cutoff {
                         break;
                     }
-                    beta = cmp::min(beta, eval);
+                }
+
+                if !cutoff {
+                    if let Some(m) = best_move {
+                        let entry = EvalEntry { eval, best_move: m };
+                        game.transposition.update_eval(best_pos_hash, entry);
+                    }
                 }
                 eval
             }
         }
     }
 
-    fn next_move<G: Game>(&mut self, game: &mut G) -> G::Move {
+    fn next_move<const M: usize, const N: usize, const K: usize>(
+        &mut self,
+        game: &mut MNKBoard<M, N, K>,
+    ) -> <MNKBoard<M, N, K> as Game>::Move {
         let move_evals: Vec<_> = game
             .moves()
             .iter()
             .map(|m| {
-                game.execute_move(m.clone()).unwrap();
+                game.execute_move(*m).unwrap();
                 let eval = self.alphabeta(game, 0, i32::MIN, i32::MAX, Player::Player1);
-                game.undo_move(m.clone()).unwrap();
-                (m.clone(), eval)
+                game.undo_move(*m).unwrap();
+                (*m, eval)
             })
             .collect();
 
@@ -479,7 +562,7 @@ impl Minimax {
             .iter()
             .min_by(|(_, v1), (_, v2)| v1.cmp(v2))
             .unwrap();
-        best_move.clone()
+        *best_move
     }
 }
 
@@ -492,15 +575,20 @@ fn parse_input(s: &str) -> Result<(usize, usize), Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    let mut b: MNKBoard<4, 4, 4> = MNKBoard::new();
-    let mut ai = Minimax;
+    let mut b: MNKBoard<4, 4, 3> = MNKBoard::new();
+    let mut ai = MNKMinimax;
     let mut player = Player::Player1;
+
     println!("{}", b);
     while b.winner().is_none() {
         match player {
             Player::Player1 => {
                 assert_eq!(b.current_player, Player::Player1);
                 let mut line = String::new();
+
+                print!("Make your move (row, column): ");
+                std::io::stdout().flush().unwrap();
+
                 std::io::stdin().read_line(&mut line).unwrap();
                 if let Ok(pos) = parse_input(line.as_str()) {
                     if let Err(msg) = b.execute_move(pos) {
@@ -517,6 +605,7 @@ fn main() {
                 assert_eq!(b.current_player, Player::Player2);
                 let ai_move = ai.next_move(&mut b);
                 b.execute_move(ai_move).unwrap();
+                println!("The AI has made the move {:?}!", ai_move);
                 println!("{}", b);
             }
         }
@@ -583,7 +672,7 @@ mod test {
 
         let board = MNKBoard::<3, 3, 3>::load_board(board, Player1);
 
-        assert_eq!(board.winner(), Some(PlayerWon(Player2)));
+        assert_eq!(board.winner(), None);
 
         let board = [
             [None, Some(Player2), None],
@@ -673,6 +762,15 @@ mod test {
         let board = MNKBoard::<3, 3, 2>::load_board(board, Player1);
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
+
+        let board = [
+            [Some(Player1), Some(Player2), Some(Player1)],
+            [Some(Player2), Some(Player2), Some(Player1)],
+            [Some(Player2), Some(Player1), Some(Player1)],
+        ];
+
+        let board = MNKBoard::<3, 3, 3>::load_board(board, Player2);
+        assert_eq!(board.winner(), Some(PlayerWon(Player1)));
     }
 
     #[test]
@@ -709,6 +807,26 @@ mod test {
         board.move_sequence = vec![(0, 2)];
 
         assert_eq!(board.winner(), Some(PlayerWon(Player1)));
+
+        let board = [
+            [Some(Player1), Some(Player2), Some(Player1)],
+            [Some(Player2), Some(Player2), Some(Player1)],
+            [Some(Player2), Some(Player1), Some(Player1)],
+        ];
+
+        let mut board = MNKBoard::<3, 3, 3>::load_board(board, Player2);
+        board.move_sequence = vec![
+            (0, 0),
+            (1, 1),
+            (2, 2),
+            (0, 1),
+            (2, 1),
+            (2, 0),
+            (0, 2),
+            (1, 0),
+            (1, 2),
+        ];
+        assert_eq!(board.winner(), Some(PlayerWon(Player1)));
     }
 
     #[test]
@@ -742,5 +860,65 @@ mod test {
         board.execute_move((2, 2)).unwrap();
 
         assert_eq!(board.winner(), Some(Draw));
+    }
+
+    #[test]
+    fn undo_arbitrary_move() {
+        let mut board = MNKBoard::<3, 3, 3>::new();
+        assert_eq!(board.current_player, Player1);
+        board.execute_move((0, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.execute_move((0, 0)).unwrap();
+
+        assert_eq!(board.current_player, Player1);
+        board.execute_move((1, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.execute_move((2, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player1);
+        board.undo_move((2, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.undo_move((0, 0)).unwrap();
+
+        assert_eq!(board.current_player, Player2);
+        board.undo_move((0, 1)).unwrap();
+
+        assert_eq!(board.current_player, Player1);
+    }
+
+    #[test]
+    fn zobrist_hash_is_valid() {
+        // Create Zobrist hash table with following predetermined values:
+        let mut board = MNKBoard::<3, 3, 3>::new();
+
+        let white = [[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+        let black = [[9, 10, 11], [12, 13, 14], [15, 16, 17]];
+        let zobrist_table = [white, black];
+        board.transposition.hash_func.hash_values = zobrist_table;
+
+        assert_eq!(board.current_player, Player1);
+
+        board.execute_move((2, 2)).unwrap();
+        assert_eq!(board.current_player, Player2);
+        assert_eq!(board.hash, 8);
+
+        board.execute_move((2, 1)).unwrap();
+        assert_eq!(board.current_player, Player1);
+        assert_eq!(board.hash, 24);
+
+        board.execute_move((2, 0)).unwrap();
+        assert_eq!(board.current_player, Player2);
+        assert_eq!(board.hash, 30);
+
+        board.execute_move((1, 2)).unwrap();
+        assert_eq!(board.current_player, Player1);
+        assert_eq!(board.hash, 16);
+
+        board.undo_move((2, 2)).unwrap();
+        assert_eq!(board.current_player, Player1);
+        assert_eq!(board.hash, 0);
     }
 }
