@@ -10,5 +10,4 @@ name = "reference"
 path = "src/reference_solution.rs"
 
 [dependencies]
-num-bigint = "0.4.3"
-num-traits = "0.2.14"
+rug = "1.14.0"
