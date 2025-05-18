@@ -1,0 +1,855 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% Welcome to Overleaf --- just edit your LaTeX on the left,
+% and we'll compile it for you on the right. If you open the
+% 'Share' menu, you can invite other users to edit at the same
+% time. See www.overleaf.com/learn for more info. Enjoy!
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass{slides}
+
+% if using pdflatex
+
+\usepackage[utf8]{inputenc}
+
+% \usepackage[T1]{fontenc}
+% \usepackage{tgbonum}
+
+\usepackage[T1]{roboto-mono}
+\usepackage{epigraph} 
+\usepackage{listings}
+\usepackage{emoji}
+% \usepackage[T1]{FiraMono}
+% \setmonofont{FiraMono}
+
+\usepackage{graphicx}
+\graphicspath{{images/}}
+%Information to be included in the title page:
+\title{Rust 101 - Lecture 1}
+\author{Jordan Hall}
+\institute{DoCSoc}
+\date{2022}
+
+\newcommand{\centerimg}[2]{
+    \begin{center}
+        \includegraphics[#1]{#2}
+    \end{center}
+}
+
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}
+\frametitle{Who am I?}
+\centerimg{width=4cm}{me}
+\begin{itemize}
+    \item Jordan Hall
+    \item Born and raised in South Wales
+    \item 2\textsuperscript{nd} year Computing student at Imperial College London
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{A bit of my CV}
+\begin{itemize}
+    \item ML engineer at The Tower
+    \item Data visualisation engineer at ICT Blue Ltd
+    \item Will be interning at Microsoft during the summer
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{My Social Media}
+
+Github: \href{https://github.com/JordanLloydHall}{JordanLloydHall}
+
+LinkedIn: \href{https://www.linkedin.com/in/jordan-hall-449235108/}{Jordan Hall}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Software bugs}
+Run-time bugs are rampant:
+\begin{itemize}
+    \item Data races
+    \item Null-pointer bugs
+    \item Segmentation faults
+    \item Double frees
+    \item Use after free
+    \item Memory leaks
+\end{itemize}
+These bugs/errors were manageable back when our code only needed to run on one thread.
+We left the impossible task of parallelism to operating systems developers, database software developers, network developers, ect. Other developers only had to wait until the next processor generation came out to double the speed of their code.
+\end{frame}
+
+\begin{frame}
+\frametitle{Software bugs}
+We have a problem:
+\begin{itemize}
+    \item The clock speed of modern CPUs are stagnating, but the number of cores per chip is growing rapidly.
+    \item We don't \textit{really} know how to write safe, secure, and reliable concurrent code.
+\end{itemize}
+Potential Solutions:
+\begin{itemize}
+    \item We have a runtime packaged with our code (like the Java Runtime Environment).
+    \item We can write static analysers that check our code for common mistakes.
+    \item Or we can rethink the way we write code to be better suited to these problems.
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{Software bugs}
+The root of the problem is this:
+\begin{itemize}
+    \item We don't keep track of what code is doing to our data.
+    \item Several parts of our program can change and read the data at the same time.
+    \item Keeping track of when we need to free memory is not trivial.
+\end{itemize}
+Rust promises to solve these problems at compile-time.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Software bugs}
+\begin{minted}[fontsize=\small]{c}
+int main()
+{
+    int **arr = malloc(sizeof(int*));
+    int **tmp = &arr[0];
+    arr[0] = malloc(sizeof(int));
+    
+    free(tmp);
+    arr[0] = 0;
+    
+    printf("%d\n", arr[0][0]);
+    return 0;
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Compile-time bugs}
+\begin{minted}[fontsize=\small]{c}
+int main()
+{
+    int **arr = malloc(sizeof(int*));
+    int **tmp = &arr[0];                <- Unchecked Aliasing
+    arr[0] = malloc(sizeof(int));       <- Mutation
+    
+    free(tmp);                          <- Free
+    arr[0] = 0;                         <- Type incompatibility 
+    
+    printf("%d\n", arr[0][0]);          <- Segmentation fault & use after free
+    return 0;
+}                                       <- Memory leak
+\end{minted}
+\end{frame}
+
+\begin{frame}
+\frametitle{What is Rust?}
+\textit{An actual photo from Mozilla offices:}
+\centerimg{width=4cm}{thistall}
+\end{frame}
+
+\begin{frame}
+\section{What is Rust?}
+\epigraph{My biggest compliment to Rust is that it's boring, and this is an amazing compliment.}{\textit{Chris Dickinson\\ Engineer at npm, Inc}}
+\end{frame}
+
+
+\begin{frame}
+\frametitle{What is Rust?}
+Initially developed by Graydon Hoare, an employee at Mozilla in 2006.
+
+Graydon noticed that making concurrent programs that are fast was practically impossible.
+
+Mozilla had an feature request wherein a component of Firefox needed to be optimised for multi-core CPUs...
+
+That issue was open for 7 years!
+\end{frame}
+
+\begin{frame}
+\frametitle{What is Rust?}
+Rust is a systems programming language with three  major pillars:
+\centerimg{width=9cm}{why_rust}
+\end{frame}
+
+\begin{frame}
+\section{Where is Rust now?}
+\vspace*{\fill}
+\epigraph{
+I would love to see Rust take that place [of C/C++]. I have been following an OS written entirely in Rust, and it has great idioms.}{\textit{Miguel de Icaza\\ Founder of GNOME, Mono, and Xamarin Projects}}
+\end{frame}
+
+\begin{frame}
+\frametitle{What is Rust?}
+In May 2015 Rust 1.0 was released into the public.
+
+In 2020 Mozilla let go of 250 out of their 1000 employees - including the Rust team and the Servo team.
+
+In 2021 the Rust Foundation was announced by its 5 founding companies: AWS, Huawei, Google, Microsoft and Mozilla.
+
+Following this, Google added Rust support for the Android Open Source Project (making C/C++ no longer necessary).
+\end{frame}
+
+\begin{frame}
+\frametitle{Where is Rust now?}
+Rust is 7 years old now.
+
+It is already used everywhere:
+
+Microsoft, Google, Amazon, Facebook, Discord, Figma, Dropbox, NPM, etc.
+
+In Stack Overflow's 2021 annual survey, Rust was rated the \#1 most loved language - for the 6th year in a row.
+
+Crates.io has 75,600 crates, with 13 billion downloads.
+
+Has become the Linux Kernel's first ever secondary language, and even Linus happy about it!
+\end{frame}
+
+\begin{frame}
+\section{Rust 101!}
+\centerimg{width=6cm}{ferris}
+\end{frame}
+
+\begin{frame}
+\frametitle{Roadmap}
+\centerimg{width=10cm}{roadmap}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Basic Layout}
+\mint{bash}|$ cargo new hello_world|
+
+In src/main.rs:
+\begin{minted}{rust}
+fn main() {
+    println!("Hello World!");
+}
+\end{minted}
+\mint{bash}|$ cargo run|
+
+\mint{bash}|Hello World!|
+\end{frame}
+
+\begin{frame}
+\section{Types}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Primitive Types}
+Unsigned Integers: 
+\mint{rust}|u8, u16, u32, u64, u128, usize|
+\mint{rust}|let x: u8 = 42;|
+
+Signed Integers: 
+\mint{rust}|i8, i16, i32, i64, i128, isize|
+\mint{rust}|let y = -42; // f32|
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Primitive Types (continued)}
+Floating Point Numbers: 
+\mint{rust}|f32, f64|
+\mint{rust}|let f1 = 3.141592654; // f64|
+\mint{rust}|let f2: f32 = 1.61803398875;|
+
+More types:
+\mint{rust}|bool, str, char|
+
+\begin{minted}{rust}
+let b = true;
+let c = 'q'; // Also supports emojis! (but my Latex editor can't)
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Printing Variables}
+\begin{minted}{rust}
+fn main() {
+    let answer = 42;
+    println!("Your answer is: {}", answer);
+}
+\end{minted}
+\mint{bash}|Your answer is 42|
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Basic Arithmetic}
+\begin{minted}{rust}
+fn main() {
+    let x = 10 - 5;
+    let y = x * 2;
+    let z = y == 5;
+    let w = x + z; // Is there something wrong here?
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What types are x, y, z?
+    \item What's wrong with w?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Variable Redefinition}
+\begin{minted}{rust}
+fn main() {
+    let x = 5;
+    let x = true;
+    println!("{}", x);
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What does the Rust compiler think about this?
+    \item What will be printed if this program is run?
+    \item What does this say about the scopes of variables?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Mutability}
+\begin{minted}{rust}
+fn main() {
+    let x = 96;
+    x = 42;
+    println!("{}", x);
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What does the Rust compiler think about this?
+    \item What will be printed if this program is run?
+    \item What does this say about variables in Rust?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Mutability (continued)}
+\begin{minted}{rust}
+fn main() {
+    let mut x = 96;
+    x = 42;
+    println!("{}", x);
+}
+\end{minted}
+\begin{enumerate}
+    \item What does the Rust compiler think about this?
+    \item What will be printed if this program is run?
+    \item What does this say about variables in Rust?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Constant and Static Variables}
+\begin{minted}{rust}
+const I_AM_A_CONSTANT: u32 = 42;
+static TRUTH: bool = I_AM_A_CONSTANT == 42;
+
+fn main() {
+    println!("Is I_AM_A_CONSTANT_42? {}", TRUTH)
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item Do the types need to be specified?
+    \item What is the difference between static and const?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Unsafe Code}
+\begin{minted}[fontsize=\footnotesize]{rust}
+const I_AM_A_CONSTANT: u32 = 42;
+static mut TRUTH: bool = I_AM_A_CONSTANT == 42;
+fn main() {
+    unsafe {
+        TRUTH = false;
+        println!(
+            "I_AM_A_CONSTANT == 42 is {}, but TRUTH tells me it's {}",
+            I_AM_A_CONSTANT == 42,
+            TRUTH
+        );
+    }
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What does unsafe mean?
+    \item Why do we need unsafe for mutable static variables?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Type Casting}
+\begin{minted}{rust}
+fn main() {
+    let x: u32 = 10;
+    let y = 8u8;
+    let z: usize = x + y;
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What does the Rust compiler think of this?
+    \item What does this say about type inference in Rust?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Type Casting (continued)}
+\begin{minted}{rust}
+fn main() {
+    let x: u32 = 10;
+    let y = 8u8;
+    let z: usize = (x + (y as u32)) as usize;
+    let w: usize = x as usize + y as usize;
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What does the Rust compiler think of this?
+    \item What does this say about type inference in Rust?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Compound Types}
+\begin{minted}{rust}
+let arr = [1, 2, 3, 4, 5];
+let arr = [1u8; 15];
+let x = arr[14];
+\end{minted}
+
+\begin{minted}{rust}
+let tup = (1, true, 'h');
+let i = tup.0;
+let b = tup.1;
+let c = tup.2;
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What do the types of arrays and tuples look like?
+    \item What does this say about type inference in Rust?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Compound Types (continued)}
+\begin{minted}{rust}
+let arr: [i32; 5] = [1, 2, 3, 4, 5];
+let arr: [u8; 15] = [1u8; 15];
+let x: u8 = arr[14];
+\end{minted}
+
+\begin{minted}{rust}
+let tup: (i32, bool, char) = (1, true, 'h');
+let i: i32 = tup.0;
+let b: bool = tup.1;
+let c: char = tup.2;
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What do the types of arrays and tuples look like?
+    \item What does this say about type inference in Rust?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Structs}
+
+\begin{minted}[fontsize=\footnotesize]{rust}
+struct User {
+    active: bool,
+    username: String,
+    email: String,
+    sign_in_count: u64,
+}
+
+fn main() {
+    let tony = User {
+        active: true,
+        username: String::from("Tony"),
+        email: String::from("OohBaby42@haskell.org"),
+        sign_in_count: 12345
+    };
+    println!("{} has logged in {} times!", tony.username, tony.sign_in_count);
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Structs (continued)}
+
+\begin{minted}[]{rust}
+struct RGBColor(u8, u8, u8);
+
+fn main() {
+    let color = RGBColor(183, 65, 14);
+    println!(
+        "The color you have chosen is: R: {}, G: {}, B: {}",
+        color.0, color.1, color.2
+    );
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Enums}
+
+\begin{minted}[fontsize=\footnotesize]{rust}
+enum Color {
+    RGB(u8, u8, u8),
+    Named(String),
+    HexRGB(u32)
+}
+fn main() {
+    let color = Color::HexRGB(12009742);
+    match color {
+        Color::RGB(r, g, b) => println!("R:{}, G:{}, B:{}", r, g, b),
+        Color::Named(s) => println!("{}", s),
+        Color::HexRGB(v) => println!("{:#06x}", v)
+    }
+}
+\end{minted}
+\begin{minted}[fontsize=\footnotesize]{rust}
+let color = Color::HexRGB(12009742); // prints "0xb7410e";
+let color = Color::Named("Rust"); // prints "Rust"
+let color = Color::RGB(183, 65, 14); // prints "R:183, G:65, B:14"
+\end{minted}
+\end{frame}
+
+\begin{frame}
+\section{Control Flow}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{If Statement}
+\begin{minted}[]{rust}
+fn main() {
+    let x = 42; 
+    if x % 2 == 0 {
+        println!("The answer is an even number")
+    } else {
+        println!("The answer is an even number")
+    }
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item Why is there no need for semi-colons at the print statement's arms?
+    \item What types are allowed in the condition of a print statement?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{If Statement (continued)}
+\begin{minted}[]{rust}
+fn main() {
+    let x = 42; 
+    let y = if x % 2 == 0 {
+        x / 2
+    } else {
+        3 * x + 1
+    };
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What happens if the arms of the expression are different types?
+    \item What is the type of y?
+    \item What happens if we don't add a second branch to the if statement?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{While Statement}
+\begin{minted}[]{rust}
+fn main() {
+    let mut x = 42;
+    let mut biggest_num = x;
+    while x != 1 {
+        x = if x % 2 == 0 { x / 2 } else { 3 * x + 1 };
+        biggest_num = biggest_num.max(x);
+    }
+    assert_eq!(64, biggest_num);
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item Prove or disprove that for all $x \in \mathbb{N}$, this program halts.
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Loop Statement}
+\begin{minted}[]{rust}
+fn main() {
+    loop {
+        println!("Are we done yet?")
+    }
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Loop Statement (continued)}
+\begin{minted}[]{rust}
+fn main() {
+    let n = 5;
+    let mut counter = 1;
+    let mut tmp = 1;
+    let fact = loop {
+        if counter == n {
+            break tmp
+        }
+        counter += 1;
+        tmp *= counter;
+    };
+    assert_eq!(120, fact);
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{For Loop}
+\begin{minted}[fontsize=\footnotesize]{rust}
+fn main() {
+    for i in 1..=15 {
+        let fizz = i % 3 == 0;
+        let buzz = i % 5 == 0;
+        print!("{:02} ", i);
+        if fizz {
+            print!("fizz");
+        }
+        if buzz {
+            print!("buzz");
+        }
+        println!();
+    }
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{For Loop (continued)}
+\begin{minted}[]{rust}
+fn main() {
+    let arr = [1, 2, 3, 4, 5];
+    let mut sum = 0;
+    for i in arr.into_iter() {
+        sum += i;
+    }
+    assert_eq!(15, sum);
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What does into\_iter() do?
+    \item Is there a better way again to do this?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Match Statement}
+\begin{minted}[]{rust}
+fn main() {
+    let age = 42;
+    match age {
+        0..=17 => println!("This person can't buy alcohol!"),
+        120.. => println!("Are you sure you have the right age?"),
+        _ => println!("This person can buy alcohol!")
+    };
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What happens if not all of the cases are met?
+    \item What happens when you put floating point numbers in the match arms?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Match Statement (continued)}
+\begin{minted}[]{rust}
+fn main() {
+    let age = 42;
+    let can_buy_alcohol = match age {
+        0..=17 | 120.. => false,
+        _ => true
+    };
+    assert!(can_buy_alcohol);
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What happens if not all of the cases are met?
+    \item What happens when you put floating point numbers in the match arms?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}
+\section{Functions}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Primitive Functions}
+\begin{minted}[]{rust}
+fn print_me(x: i32) {
+    println!("{}", x);
+}
+fn main() {
+    print_me(42);
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What are the types in this function?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Primitive Functions (continued)}
+\begin{minted}[]{rust}
+fn multiply(x: i32, y: i32) -> i32 {
+    x * y
+}
+fn main() {
+    assert_eq!(12, multiply(3, 4))
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item Where is the return statement?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Recursive Functions}
+\begin{minted}[]{rust}
+fn fib(n: u32) -> u32 {
+    match n {
+        0 | 1 => n,
+        _ => fib(n-1) + fib(n-2)
+    }
+}
+fn main() {
+    assert_eq!(55, fib(10));
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item Do the types of each return need to match?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Higher Order Functions}
+\begin{minted}[]{rust}
+fn double(x: i32) -> i32 {
+    x * 2
+}
+fn main() {
+    let arr = [1, 2, 3, 4, 5];
+    assert_eq!([2, 4, 6, 8, 10], arr.map(double));
+}
+\end{minted}
+Multiple comments about this implementation:
+\begin{enumerate}
+    \item Defining a global function just to be used once as a higher order function is messy.
+    \item Function primitives can't capture scope.
+\end{enumerate}
+But there's a better way!
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Closures}
+\begin{minted}[]{rust}
+fn main() {
+    let double = |x| x * 2;
+    assert_eq!(8, double(4));
+}
+\end{minted}
+Questions:
+\begin{enumerate}
+    \item What are the types of double()?
+    \item What happens if we remove the use of double?
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Closures (continued)}
+\begin{minted}[]{rust}
+fn main() {
+    let n = 2;
+    let arr = [1, 2, 3, 4, 5];
+    assert_eq!([2, 4, 6, 8, 10], arr.map(|x| x * n));
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{A Problem with Functions}
+\begin{minted}[fontsize=\footnotesize]{rust}
+fn sign_in_user(mut user: User) -> User {
+    user.sign_in_count += 1;
+    user.active = true;
+    user
+}
+fn main() {
+    let tony = User {
+        active: false,
+        username: String::from("Tony"),
+        email: String::from("OohBaby42@haskell.org"),
+        sign_in_count: 12345
+    };
+    let tony = sign_in_user(tony);
+    assert_eq!(12346, tony.sign_in_count);
+    assert!(tony.active);
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{A Problem with Functions (continued)}
+\begin{minted}[fontsize=\footnotesize]{rust}
+fn length_of_username(user: User) -> usize {
+    user.username.len()
+}
+fn main() {
+    let tony = User {
+        active: false,
+        username: String::from("Tony"),
+        email: String::from("OohBaby42@haskell.org"),
+        sign_in_count: 12345
+    };
+    let l = length_of_username(tony);
+    assert_eq!(4, l);
+    assert!(!tony.active)
+}
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{A Problem with Functions (continued)}
+\begin{minted}[fontsize=\footnotesize]{rust}
+error[E0382]: use of moved value: `tony`
+  --> src/main.rs:20:14
+   |
+12 |     let tony = User {
+   |         ---- move occurs because `tony` has type `User`, which does not implement 
+   |                the `Copy` trait
+...
+18 |     let l = length_of_username(tony);
+   |                                ---- value moved here
+19 |     assert_eq!(4, l);
+20 |     assert!(!tony.active)
+   |              ^^^^^^^^^^^ value used here after move
+
+For more information about this error, try `rustc --explain E0382`.
+\end{minted}
+\end{frame}
+
+
+\end{document}
